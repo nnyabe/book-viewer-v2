@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+        nav {
+            background: #333;
+            padding: 15px;
+            text-align: center;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin: 0 15px;
+            font-size: 18px;
+        }
+        nav a:hover {
+            text-decoration: underline;
+        }
+        h1 {
+            color: #333;
+            margin-top: 20px;
+        }
+        .book-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 20px;
+        }
+        .book {
+            background: #fff;
+            margin: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: left;
+            width: 250px;
+        }
+        .book img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+        }
+        .delete-btn {
+            margin-top: 10px;
+            background: red;
+            color: white;
+            padding: 8px;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            border-radius: 4px;
+        }
+        .pagination {
+            margin-top: 20px;
+        }
+        .pagination button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            background: #007BFF;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .pagination button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="index.html">Home</a>
+    <a href="upload.html">Upload Book</a>
+</nav>
+
+<h1>Book Viewer</h1>
+
+<div class="book-list" id="bookList"></div>
+
+<div class="pagination">
+    <button id="prevPage" onclick="changePage(-1)" disabled>Previous</button>
+    <span id="pageInfo"></span>
+    <button id="nextPage" onclick="changePage(1)">Next</button>
+</div>
+
+<script>
+    let currentPage = 0;
+    const pageSize = 6; // Number of books per page
+    let books = [];
+
+    async function fetchBooks() {
+        try {
+            const response = await fetch('/api/v1/books');
+            books = await response.json();
+            renderBooks();
+        } catch (error) {
+            console.error("Error fetching books:", error);
+        }
+    }
+
+    function renderBooks() {
+        const bookList = document.getElementById("bookList");
+        bookList.innerHTML = "";
+        const start = currentPage * pageSize;
+        const end = start + pageSize;
+        const paginatedBooks = books.slice(start, end);
+
+        paginatedBooks.forEach(book => {
+            const bookDiv = document.createElement("div");
+            bookDiv.className = "book";
+            bookDiv.innerHTML = `
+                <img src="${book.imageUrl}" alt="Book Cover">
+                <h3>${book.title}</h3>
+                <p><strong>Description:</strong> ${book.description}</p>
+                <button class="delete-btn" onclick="deleteBook(${book.id})">Delete</button>
+            `;
+            bookList.appendChild(bookDiv);
+        });
+
+        document.getElementById("pageInfo").innerText = `Page ${currentPage + 1} of ${Math.ceil(books.length / pageSize)}`;
+        document.getElementById("prevPage").disabled = currentPage === 0;
+        document.getElementById("nextPage").disabled = end >= books.length;
+    }
+
+    function changePage(offset) {
+        currentPage += offset;
+        renderBooks();
+    }
+
+    async function deleteBook(id) {
+        if (!confirm("Are you sure you want to delete this book?")) return;
+
+        try {
+            const response = await fetch(`/api/v1/books/${id}`, { method: 'DELETE' });
+            if (response.ok) {
+                alert("Book deleted successfully!");
+                books = books.filter(book => book.id !== id);
+                renderBooks();
+            } else {
+                alert("Failed to delete book.");
+            }
+        } catch (error) {
+            console.error("Error deleting book:", error);
+        }
+    }
+
+    fetchBooks();
+</script>
+
+</body>
+</html>

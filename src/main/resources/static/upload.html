@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Book</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+        nav {
+            background: #333;
+            padding: 15px;
+            text-align: center;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin: 0 15px;
+            font-size: 18px;
+        }
+        nav a:hover {
+            text-decoration: underline;
+        }
+        h1 {
+            color: #333;
+            margin-top: 20px;
+        }
+        .upload-container {
+            background: #fff;
+            padding: 20px;
+            margin: auto;
+            width: 300px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        input, button, textarea {
+            width: 100%;
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        textarea {
+            resize: vertical;
+            height: 80px;
+        }
+        button {
+            background: green;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="index.html">Home</a>
+    <a href="upload.html">Upload Book</a>
+</nav>
+
+<h1>Upload a Book</h1>
+
+<div class="upload-container">
+    <input type="text" id="title" placeholder="Book Title">
+    <textarea id="description" placeholder="Book Description"></textarea>
+    <input type="file" id="file">
+    <button onclick="uploadBook()">Upload</button>
+</div>
+
+<script>
+    async function uploadBook() {
+        const title = document.getElementById("title").value;
+        const description = document.getElementById("description").value;
+        const file = document.getElementById("file").files[0];
+
+        if (!title || !description || !file) {
+            alert("All fields are required.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("title", title);
+        formData.append("description", description);
+        formData.append("file", file);
+
+        try {
+            const response = await fetch("/api/v1/books/upload", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (response.ok) {
+                alert("Book uploaded successfully!");
+                document.getElementById("title").value = "";
+                document.getElementById("description").value = "";
+                document.getElementById("file").value = "";
+            } else {
+                alert("Failed to upload book.");
+            }
+        } catch (error) {
+            console.error("Error uploading book:", error);
+        }
+    }
+</script>
+
+</body>
+</html>
