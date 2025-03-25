@@ -1,60 +1,101 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Infrastructure for Image Upload Application with Multi-AZ High Availability'
+Description: 'VPC Infrastructure for Containerized Web Application with RDS PostgreSQL and Secrets Manager'
 
 Parameters:
-  # Database Parameters
-  DatabaseUsername:
+  EnvironmentName:
+    Description: Environment name that will be prefixed to resource names
     Type: String
-    Description: Database master username
-    Default: imageadmin
-    NoEcho: true
+    Default: 'weeksixproject'
 
-  DatabasePassword:
-    Type: String
-    Description: Database master password
-    NoEcho: true
-    MinLength: 8
-    MaxLength: 41
-
-  # VPC CIDR Configuration
   VpcCIDR:
-    Type: String
-    Default: 10.0.0.0/16
     Description: CIDR block for the VPC
-
-  # Environment Configuration
-  Environment:
     Type: String
-    Default: Production
-    AllowedValues:
-      - Development
-      - Staging
-      - Production
+    Default: '10.0.0.0/16'
 
-Mappings:
-  SubnetConfig:
-    VPC:
-      CIDR: 10.0.0.0/16
-    PublicSubnet1:
-      CIDR: 10.0.1.0/24
-    PublicSubnet2:
-      CIDR: 10.0.2.0/24
-    PrivateSubnet1:
-      CIDR: 10.0.10.0/24
-    PrivateSubnet2:
-      CIDR: 10.0.11.0/24
+  PublicSubnet1CIDR:
+    Description: CIDR block for Public Subnet 1
+    Type: String
+    Default: '10.0.1.0/24'
+
+  PublicSubnet2CIDR:
+    Description: CIDR block for Public Subnet 2
+    Type: String
+    Default: '10.0.2.0/24'
+
+  PrivateSubnet1CIDR:
+    Description: CIDR block for Private Subnet 1
+    Type: String
+    Default: '10.0.3.0/24'
+
+  PrivateSubnet2CIDR:
+    Description: CIDR block for Private Subnet 2
+    Type: String
+    Default: '10.0.4.0/24'
+
+  DatabasePrivateSubnet1CIDR:
+    Description: CIDR block for Database Private Subnet 1
+    Type: String
+    Default: '10.0.5.0/24'
+
+  DatabasePrivateSubnet2CIDR:
+    Description: CIDR block for Database Private Subnet 2
+    Type: String
+    Default: '10.0.6.0/24'
+
+  # Database parameters
+  DBInstanceType:
+    Description: Database instance type
+    Type: String
+    Default: 'db.t3.small'
+
+  DBName:
+    Description: The name of the initial database
+    Type: String
+    Default: 'imagesdb'
+
+  DBUsername:
+    Description: Database admin username
+    Type: String
+    Default: 'postgres'
+    NoEcho: true
+
+    # DBPassword:
+    #   Description: Database admin password
+    #   Type: String
+    #   NoEcho: true
+    #   MinLength: 8
+    #   Default: ''
+
+  # Add initial container image parameter
+  InitialContainerImage:
+    Description: Initial container image to use (should be a valid public image)
+    Type: String
+    Default: 'public.ecr.aws/e2h5u6h2/image-uploader-app:latest'
+
+  # Add deployment toggle parameter
+  DeployService:
+    Description: Whether to deploy the ECS service (set to false for initial infrastructure)
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+Conditions:
+  # Define conditions for optional resources
+  ShouldDeployService: !Equals [!Ref DeployService, 'true']
 
 Resources:
-  # VPC Configuration
+  # VPC
   VPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: !Ref VpcCIDR
-      EnableDnsHostnames: true
       EnableDnsSupport: true
+      EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-ImageUploadVPC
+          Value: !Sub '${EnvironmentName}-VPC'
 
   # Internet Gateway
   InternetGateway:
@@ -62,158 +103,233 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-IGW
+          Value: !Sub '${EnvironmentName}-IGW'
 
-  # Attach Internet Gateway to VPC
-  AttachGateway:
+  InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
 
   # Public Subnets
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [ SubnetConfig, PublicSubnet1, CIDR ]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet1CIDR
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Public-Subnet-1
+          Value: !Sub '${EnvironmentName}-PublicSubnet1'
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      CidrBlock: !FindInMap [ SubnetConfig, PublicSubnet2, CIDR ]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet2CIDR
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Public-Subnet-2
+          Value: !Sub '${EnvironmentName}-PublicSubnet2'
 
-  # Private Subnets
+  # Private Subnets for Application
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      CidrBlock: !FindInMap [ SubnetConfig, PrivateSubnet1, CIDR ]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet1CIDR
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Private-Subnet-1
+          Value: !Sub '${EnvironmentName}-PrivateSubnet1'
 
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      CidrBlock: !FindInMap [ SubnetConfig, PrivateSubnet2, CIDR ]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet2CIDR
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Private-Subnet-2
+          Value: !Sub '${EnvironmentName}-PrivateSubnet2'
 
-  # Public Route Table
+  # Database Private Subnets
+  DatabasePrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref DatabasePrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DatabasePrivateSubnet1'
+
+  DatabasePrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref DatabasePrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DatabasePrivateSubnet2'
+
+  # NAT Gateways with Elastic IPs
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-NatGateway1'
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-NatGateway2'
+
+  # Route Tables
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Public-Routes
+          Value: !Sub '${EnvironmentName}-PublicRouteTable'
 
   PublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: AttachGateway
+    DependsOn: InternetGatewayAttachment
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: '0.0.0.0/0'
       GatewayId: !Ref InternetGateway
 
-  PublicSubnet1RouteAssociation:
+  PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref PublicSubnet1
       RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
 
-  PublicSubnet2RouteAssociation:
+  PublicSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
+      RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
-      RouteTableId: !Ref PublicRouteTable
 
-  # NAT Gateway for Private Subnets
-  NatGatewayEIP:
-    Type: AWS::EC2::EIP
-    DependsOn: AttachGateway
-    Properties:
-      Domain: vpc
-
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGatewayEIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-
-  # Private Route Table
-  PrivateRouteTable:
+  PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${Environment}-Private-Routes
+          Value: !Sub '${EnvironmentName}-PrivateRouteTable1'
 
-  PrivateRoute:
+  PrivateRoute1:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway1
 
-  PrivateSubnet1RouteAssociation:
+  PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
+      RouteTableId: !Ref PrivateRouteTable1
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
 
-  PrivateSubnet2RouteAssociation:
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-PrivateRouteTable2'
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
+      RouteTableId: !Ref PrivateRouteTable2
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+
+  # Database Route Tables
+  DatabaseRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DatabaseRouteTable1'
+
+  DatabaseRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable1
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway1
+
+  DatabaseSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable1
+      SubnetId: !Ref DatabasePrivateSubnet1
+
+  DatabaseRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DatabaseRouteTable2'
+
+  DatabaseRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable2
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway2
+
+  DatabaseSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable2
+      SubnetId: !Ref DatabasePrivateSubnet2
 
   # Security Groups
-  DatabaseSecurityGroup:
+  ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for RDS PostgreSQL
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref ECSServiceSecurityGroup
-
-  ECSServiceSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for ECS Service
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
-
-  LoadBalancerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for Application Load Balancer
+      GroupDescription: Security group for the ALB
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -224,95 +340,512 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-ALB-SG'
 
-  # RDS PostgreSQL Database
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      DBSubnetGroupDescription: Subnets available for the RDS DB Instance
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
+      GroupDescription: Security group for the ECS containers
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-ECS-SG'
 
-  PostgreSQLDatabase:
-    Type: AWS::RDS::DBInstance
+  # Database Security Group
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      DBName: imagedb
-      Engine: postgres
-      EngineVersion: '13.7'
-      MasterUsername: !Ref DatabaseUsername
-      MasterUserPassword: !Ref DatabasePassword
-      DBInstanceClass: db.t3.micro
-      AllocatedStorage: 20
-      MultiAZ: true
-      PubliclyAccessible: false
-      VPCSecurityGroups:
-        - !Ref DatabaseSecurityGroup
-      DBSubnetGroupName: !Ref DBSubnetGroup
+      GroupDescription: Security group for RDS PostgreSQL database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DB-SG'
 
-  # S3 Bucket for Image Storage
-  ImageBucket:
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Name: !Sub '${EnvironmentName}-ALB'
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Scheme: internet-facing
+      Type: application
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-ALB'
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${EnvironmentName}-TargetGroup'
+      Port: 5000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: '5000'
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-TargetGroup'
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${EnvironmentName}-Cluster'
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+  # S3 Bucket
+  ImagesBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${Environment}-image-upload-bucket
-      VersioningConfiguration:
-        Status: Enabled
+      BucketName: !Sub '${EnvironmentName}-images-${AWS::AccountId}'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicyAcls: true
+        BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3000
 
-  # Systems Manager Parameter Store for Database Credentials
-  DatabaseUsernameParameter:
-    Type: AWS::SSM::Parameter
+  # S3 Bucket Policy
+  ImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
     Properties:
-      Name: /imageapp/database/username
-      Type: SecureString
-      Value: !Ref DatabaseUsername
+      Bucket: !Ref ImagesBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:DeleteObject
+            Resource:
+              - !Sub 'arn:aws:s3:::${ImagesBucket}'
+              - !Sub 'arn:aws:s3:::${ImagesBucket}/*'
 
-  DatabasePasswordParameter:
-    Type: AWS::SSM::Parameter
+  # RDS Database Subnet Group
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
     Properties:
-      Name: /imageapp/database/password
-      Type: SecureString
-      Value: !Ref DatabasePassword
+      DBSubnetGroupDescription: Subnet group for RDS PostgreSQL database
+      SubnetIds:
+        - !Ref DatabasePrivateSubnet1
+        - !Ref DatabasePrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DB-SubnetGroup'
+
+  # RDS PostgreSQL Database
+  PostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBName: !Ref DBName
+      AllocatedStorage: 20
+      DBInstanceClass: !Ref DBInstanceType
+      Engine: postgres
+      EngineVersion: '17.4'
+      MasterUsername: !Ref DBUsername
+      ManageMasterUserPassword: true
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      MultiAZ: true
+      StorageType: gp3
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-PostgreSQL'
+
+  # AWS Secrets Manager for DB Credentials
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: PostgreSQLDatabase
+    Properties:
+      Name: !Sub '${EnvironmentName}/database/credentials'
+      Description: 'Secret for RDS PostgreSQL credentials'
+      SecretString: !Sub '{"username":"${DBUsername}","host":"${PostgreSQLDatabase.Endpoint.Address}","port":"${PostgreSQLDatabase.Endpoint.Port}","dbname":"${DBName}"}'
+
+  # ECS Task Execution Role
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:ListBucket'
+                  - 's3:DeleteObject'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ImagesBucket}'
+                  - !Sub 'arn:aws:s3:::${ImagesBucket}/*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Ref DatabaseSecret
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-TaskExecutionRole'
+
+  # CloudWatch Logs
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${EnvironmentName}'
+      RetentionInDays: 30
+
+  # Task Definition - using initial image parameter
+  WebAppTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${EnvironmentName}-task'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Sub '${EnvironmentName}-container'
+          Image: !Ref InitialContainerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 5000
+              HostPort: 5000
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogsGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: S3_BUCKET_NAME
+              Value: !Ref ImagesBucket
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DB_SECRET_ARN
+              Value: !Ref DatabaseSecret
+          Secrets:
+            - Name: DB_CONNECTION_STRING
+              ValueFrom: !Ref DatabaseSecret
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:5000/ || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-TaskDefinition'
+
+  # Green Target Group for Blue/Green Deployment
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${EnvironmentName}-green-tg'
+      Port: 5000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: '5000'
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-GreenTG'
+
+  # Test listener for Blue/Green deployment testing
+  TestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GreenTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 5001
+      Protocol: HTTP
+
+  # CodeDeploy Service Role
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-CodeDeployRole'
+
+  # CodeDeploy resources for Blue/Green deployment
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub '${EnvironmentName}-deploy-app'
+      ComputePlatform: ECS
+
+  # Conditionally deploy the ECS service
+  WebAppService:
+    Type: AWS::ECS::Service
+    Condition: ShouldDeployService
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: !Sub '${EnvironmentName}-service'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref WebAppTaskDefinition
+      DesiredCount: 2
+      DeploymentController:
+        Type: CODE_DEPLOY
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+      LoadBalancers:
+        - ContainerName: !Sub '${EnvironmentName}-container'
+          ContainerPort: 5000
+          TargetGroupArn: !Ref ALBTargetGroup
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Service'
+
+  # Conditionally deploy the CodeDeploy deployment group
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Condition: ShouldDeployService
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: !Sub '${EnvironmentName}-deploy-group'
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+      ECSServices:
+        - ClusterName: !Ref ECSCluster
+          ServiceName: !GetAtt WebAppService.Name
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - ProdTrafficRoute:
+              ListenerArns:
+                - !Ref ALBListener
+            TestTrafficRoute:
+              ListenerArns:
+                - !Ref TestListener
+            TargetGroups:
+              - Name: !GetAtt ALBTargetGroup.TargetGroupName
+              - Name: !GetAtt GreenTargetGroup.TargetGroupName
+
+  # Auto Scaling (only when service is deployed)
+  WebAppAutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: ShouldDeployService
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 2
+      ResourceId: !Sub 'service/${ECSCluster}/${WebAppService.Name}'
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+
+  WebAppAutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: ShouldDeployService
+    Properties:
+      PolicyName: !Sub '${EnvironmentName}-cpu-scaling'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WebAppAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
 
 Outputs:
-  VPCId:
-    Description: VPC ID
+  VpcId:
+    Description: The ID of the VPC
     Value: !Ref VPC
     Export:
-      Name: !Sub ${Environment}-VPC-ID
+      Name: !Sub '${EnvironmentName}-VpcId'
 
   PublicSubnet1:
-    Description: Public Subnet 1
+    Description: The ID of Public Subnet 1
     Value: !Ref PublicSubnet1
     Export:
-      Name: !Sub ${Environment}-PublicSubnet1
+      Name: !Sub '${EnvironmentName}-PublicSubnet1'
 
   PublicSubnet2:
-    Description: Public Subnet 2
+    Description: The ID of Public Subnet 2
     Value: !Ref PublicSubnet2
     Export:
-      Name: !Sub ${Environment}-PublicSubnet2
+      Name: !Sub '${EnvironmentName}-PublicSubnet2'
 
   PrivateSubnet1:
-    Description: Private Subnet 1
+    Description: The ID of Private Subnet 1
     Value: !Ref PrivateSubnet1
     Export:
-      Name: !Sub ${Environment}-PrivateSubnet1
+      Name: !Sub '${EnvironmentName}-PrivateSubnet1'
 
   PrivateSubnet2:
-    Description: Private Subnet 2
+    Description: The ID of Private Subnet 2
     Value: !Ref PrivateSubnet2
     Export:
-      Name: !Sub ${Environment}-PrivateSubnet2
+      Name: !Sub '${EnvironmentName}-PrivateSubnet2'
 
-  DatabaseEndpoint:
-    Description: PostgreSQL Database Endpoint
-    Value: !GetAtt PostgreSQLDatabase.Endpoint.Address
+  DatabasePrivateSubnet1:
+    Description: The ID of Database Private Subnet 1
+    Value: !Ref DatabasePrivateSubnet1
+    Export:
+      Name: !Sub '${EnvironmentName}-DatabasePrivateSubnet1'
+
+  DatabasePrivateSubnet2:
+    Description: The ID of Database Private Subnet 2
+    Value: !Ref DatabasePrivateSubnet2
+    Export:
+      Name: !Sub '${EnvironmentName}-DatabasePrivateSubnet2'
+
+  AlbDnsName:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${EnvironmentName}-AlbDnsName'
+
+  ALBTargetGroupArn:
+    Description: ARN of the ALB Target Group
+    Value: !Ref ALBTargetGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-ALBTargetGroupArn'
+
+  ECSCluster:
+    Description: Name of the ECS Cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${EnvironmentName}-ECSCluster'
+
+  ECSSecurityGroup:
+    Description: ID of the ECS Security Group
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-ECSSecurityGroup'
 
   S3BucketName:
-    Description: S3 Bucket for Image Storage
-    Value: !Ref ImageBucket
+    Description: Name of the S3 Bucket for Images
+    Value: !Ref ImagesBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-S3BucketName'
+
+  DatabaseSecretArn:
+    Description: ARN of the Database Credentials Secret
+    Value: !Ref DatabaseSecret
+    Export:
+      Name: !Sub '${EnvironmentName}-DatabaseSecretArn'
