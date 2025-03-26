@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.ssm.model.GetParameterRequest;
-
 @Configuration
 public class DataSourceConfig {
 
@@ -26,7 +25,6 @@ public class DataSourceConfig {
             System.err.println("Failed to fetch dbUsername: " + e.getMessage());
             throw new RuntimeException("SSM fetch failed for dbUsername", e);
         }
-
         // Fetch password
         String password;
         try {
