@@ -208,8 +208,8 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action: kms:Decrypt
-                Resource: 'arn:aws:ssm:eu-central-1:195275642256:parameter/myapp/rds/*' # Adjust to specific KMS key ARN if known
-
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/myapp/rds/*'
   # S3 Access Role
   S3AccessRole:
     Type: AWS::IAM::Role
