@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to provision a publicly accessible RDS PostgreSQL instance with multi-AZ failover and Parameter Store integration
+
+Parameters:
+  DBName:
+    Type: String
+    Default: myappdb
+    Description: The name of the database
+  DBUsername:
+    Type: String
+    Default: myappuser
+    Description: The master username for the RDS instance
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: The master password for the RDS instance
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID where the RDS instance will be deployed
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First public subnet for RDS
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second public subnet for RDS
+
+Resources:
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS instance
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0 # Allows access from any IP (restrict this in production)
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: myapp-postgres
+      Engine: postgres
+      EngineVersion: '11.22-rds.20240808'
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: true
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:05:00-sun:06:00'
+      PubliclyAccessible: true # Makes the RDS instance publicly accessible
+
+  DBEndpointParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /myapp/rds/endpoint
+      Type: String
+      Value: !GetAtt RDSInstance.Endpoint.Address
+      Description: RDS PostgreSQL instance endpoint
+
+  DBPortParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /myapp/rds/port
+      Type: String
+      Value: !GetAtt RDSInstance.Endpoint.Port
+      Description: RDS PostgreSQL instance port
+
+  DBNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /myapp/rds/dbname
+      Type: String
+      Value: !Ref DBName
+      Description: Database name
+
+  DBUsernameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /myapp/rds/username
+      Type: String
+      Value: !Ref DBUsername
+      Description: Database username
+
+  DBPasswordParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /myapp/rds/password
+      Type: String
+      Value: !Ref DBPassword
+      Description: Database password
+
+Outputs:
+  RDSEndpoint:
+    Description: Endpoint of the RDS instance
+    Value: !GetAtt RDSInstance.Endpoint.Address
+  RDSPort:
+    Description: Port of the RDS instance
+    Value: !GetAtt RDSInstance.Endpoint.Port
+  RDSSubnetGroup:
+    Description: RDS Subnet Group
+    Value: !Ref RDSSubnetGroup
