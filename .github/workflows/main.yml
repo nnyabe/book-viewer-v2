@@ -20,7 +20,7 @@ jobs:
           java-version: '21'
 
       - name: Build JAR file with Maven
-        run: mvn clean install # -DskipTests
+        run: mvn clean package -e -X # -DskipTests
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
