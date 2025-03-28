@@ -1,5 +1,3 @@
-I'll create a comprehensive README.md file based on the detailed project description.
-
 
 
 # 📚 Book Viewer
@@ -143,11 +141,3 @@ aws cloudformation delete-stack --stack-name book-viewer-stack --region eu-centr
 3. Commit changes
 4. Open a pull request
 
-## 📄 License
-
-Unlicensed—use as you see fit! 🎉
-
-
-I've created a comprehensive README.md that captures all the key details from the project description. The README follows markdown best practices, includes emoji for visual appeal, and provides a clear, structured overview of the Book Viewer application.
-
-Would you like me to make any modifications to the README?
